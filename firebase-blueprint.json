@@ -1,0 +1,140 @@
+{
+  "entities": {
+    "masjids": {
+      "title": "Masjid",
+      "description": "Details about a mosque managed in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "code", "city"]
+    },
+    "users": {
+      "title": "User Profile",
+      "description": "User profile with role and associated Masjid",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "aadharCard": { "type": "string" },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "ifscCode": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "member", "guest"] },
+        "masjidId": { "type": "string" },
+        "approved": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "role"]
+    },
+    "donations": {
+      "title": "Donation",
+      "description": "Financial donations made to the mosque",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "donorName": { "type": "string" },
+        "amount": { "type": "number" },
+        "category": { "type": "string", "enum": ["imam_salary", "muezzin", "electricity", "construction", "food_poor"] },
+        "date": { "type": "string" },
+        "upiTransactionId": { "type": "string" },
+        "masjidId": { "type": "string" }
+      },
+      "required": ["id", "donorName", "amount", "category", "date", "masjidId"]
+    },
+    "madadRequests": {
+      "title": "Madad Request",
+      "description": "Financial assistance request submitted by poor people",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "fatherName": { "type": "string" },
+        "aadhar": { "type": "string" },
+        "bankAccount": { "type": "string" },
+        "ifsc": { "type": "string" },
+        "reason": { "type": "string" },
+        "amountNeeded": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "timestamp": { "type": "string" },
+        "masjidId": { "type": "string" },
+        "returnedAmount": { "type": "number" }
+      },
+      "required": ["id", "name", "fatherName", "aadhar", "bankAccount", "ifsc", "reason", "amountNeeded", "status", "masjidId"]
+    },
+    "hadithOfTheDay": {
+      "title": "Hadith of the Day",
+      "description": "Daily Hadith posted by the Administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" },
+        "reference": { "type": "string" },
+        "date": { "type": "string" },
+        "masjidId": { "type": "string" }
+      },
+      "required": ["id", "text", "reference", "date", "masjidId"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "General announcement notifications sent by Admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "masjidId": { "type": "string" }
+      },
+      "required": ["id", "title", "body", "timestamp", "masjidId"]
+    },
+    "liveAzanSignals": {
+      "title": "Live Azan Signal",
+      "description": "Real-time state flag for live Azan playing status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "isLive": { "type": "boolean" },
+        "startedAt": { "type": "string" },
+        "audioData": { "type": "string" }
+      },
+      "required": ["id", "isLive"]
+    }
+  },
+  "firestore": {
+    "/masjids/{masjidId}": {
+      "schema": "masjids",
+      "description": "Mosque configurations and metadata"
+    },
+    "/users/{userId}": {
+      "schema": "users",
+      "description": "User accounts mapping to role and masjid affiliation"
+    },
+    "/donations/{donationId}": {
+      "schema": "donations",
+      "description": "All donations sent to the mosques"
+    },
+    "/madadRequests/{requestId}": {
+      "schema": "madadRequests",
+      "description": "Welfare assistance requests for poor village/city residents"
+    },
+    "/hadithOfTheDay/{hadithId}": {
+      "schema": "hadithOfTheDay",
+      "description": "Islamic daily updates curated by administrative leaders"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "notifications",
+      "description": "Instant broadcast messages with push equivalents for mobile screens"
+    },
+    "/liveAzanSignals/{masjidId}": {
+      "schema": "liveAzanSignals",
+      "description": "Real-time transmitter signal indicating the active azan voice feed"
+    }
+  }
+}

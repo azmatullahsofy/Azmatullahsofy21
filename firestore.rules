@@ -1,0 +1,248 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net (Deny-All Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Reuseable Hardened Helper Functions ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || request.auth.token.email_verified == null);
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Retrieve user profiles
+    function getUserProfile(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data;
+    }
+
+    // Check if user is registered in users collection
+    function isUserRegistered(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId));
+    }
+
+    // Fetch user affiliation for Master Gate checking
+    function isMemberOfMasjid(userId, masjidId) {
+      return isUserRegistered(userId) && getUserProfile(userId).masjidId == masjidId;
+    }
+
+    function isAdminOfMasjid(userId, masjidId) {
+      return isUserRegistered(userId) &&
+             getUserProfile(userId).role == 'admin' &&
+             getUserProfile(userId).masjidId == masjidId;
+    }
+
+    function masjidExists(masjidId) {
+      return exists(/databases/$(database)/documents/masjids/$(masjidId));
+    }
+
+    // --- Entity Specific Validation Blueprints ---
+
+    function isValidMasjid(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.code is string && data.code.size() == 6 && data.code.matches('^[0-9]+$') &&
+             data.city is string && data.city.size() > 0 && data.city.size() <= 100 &&
+             data.address is string && data.address.size() > 0 && data.address.size() <= 200 &&
+             data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidUser(data) {
+      return data.uid is string && data.uid.size() > 0 && data.uid.size() <= 64 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.role is string && (data.role == 'admin' || data.role == 'member' || data.role == 'guest') &&
+             data.masjidId is string && data.masjidId.size() <= 64 &&
+             data.approved is bool &&
+             data.createdAt is string && data.createdAt.size() <= 40 &&
+             (!data.keys().hasAny(['fatherName']) || (data.fatherName is string && data.fatherName.size() <= 100)) &&
+             (!data.keys().hasAny(['aadharCard']) || (data.aadharCard is string && data.aadharCard.size() <= 30)) &&
+             (!data.keys().hasAny(['bankName']) || (data.bankName is string && data.bankName.size() <= 100)) &&
+             (!data.keys().hasAny(['accountNumber']) || (data.accountNumber is string && data.accountNumber.size() <= 40)) &&
+             (!data.keys().hasAny(['ifscCode']) || (data.ifscCode is string && data.ifscCode.size() <= 20));
+    }
+
+    function isValidDonation(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.donorName is string && data.donorName.size() > 0 && data.donorName.size() <= 100 &&
+             data.amount is number && data.amount > 0 &&
+             data.category is string && (
+               data.category == 'imam_salary' || data.category == 'muezzin' ||
+               data.category == 'electricity' || data.category == 'construction' ||
+               data.category == 'food_poor'
+             ) &&
+             data.date is string && data.date.size() <= 40 &&
+             data.masjidId is string && data.masjidId.size() <= 64 &&
+             (!data.keys().hasAny(['upiTransactionId']) || (data.upiTransactionId is string && data.upiTransactionId.size() <= 128));
+    }
+
+    function isValidMadadRequest(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.fatherName is string && data.fatherName.size() > 0 && data.fatherName.size() <= 100 &&
+             data.aadhar is string && data.aadhar.size() > 0 && data.aadhar.size() <= 30 &&
+             data.bankAccount is string && data.bankAccount.size() > 0 && data.bankAccount.size() <= 40 &&
+             data.ifsc is string && data.ifsc.size() > 0 && data.ifsc.size() <= 20 &&
+             data.reason is string && data.reason.size() > 0 && data.reason.size() <= 1000 &&
+             data.amountNeeded is number && data.amountNeeded > 0 &&
+             data.status is string && (data.status == 'pending' || data.status == 'approved' || data.status == 'rejected') &&
+             data.timestamp is string && data.timestamp.size() <= 40 &&
+             data.masjidId is string && data.masjidId.size() <= 64 &&
+             data.returnedAmount is number && data.returnedAmount >= 0;
+    }
+
+    function isValidHadith(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+             data.reference is string && data.reference.size() > 0 && data.reference.size() <= 200 &&
+             data.date is string && data.date.size() <= 40 &&
+             data.masjidId is string && data.masjidId.size() <= 64;
+    }
+
+    function isValidNotification(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.body is string && data.body.size() > 0 && data.body.size() <= 2000 &&
+             data.timestamp is string && data.timestamp.size() <= 40 &&
+             data.masjidId is string && data.masjidId.size() <= 64;
+    }
+
+    function isValidLiveAzan(data) {
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 64 &&
+             data.isLive is bool &&
+             (!data.keys().hasAny(['startedAt']) || (data.startedAt is string && data.startedAt.size() <= 40)) &&
+             (!data.keys().hasAny(['audioData']) || (data.audioData is string && data.audioData.size() <= 50000));
+    }
+
+
+    // --- Collections Routing and Protection ---
+
+    // 1. Masjids collection
+    match /masjids/{masjidId} {
+      allow get: if isValidId(masjidId);
+      allow list: if isSignedIn();
+
+      // Anyone authenticated can create a masjid (registration step)
+      allow create: if isVerified() && isValidId(masjidId) && isValidMasjid(incoming()) && incoming().id == masjidId;
+
+      // Only administrators of this specific masjid can update details
+      allow update: if isVerified() && isValidId(masjidId) && isValidMasjid(incoming()) && isAdminOfMasjid(request.auth.uid, masjidId) &&
+                     incoming().id == existing().id && incoming().code == existing().code &&
+                     incoming().createdAt == existing().createdAt;
+      
+      allow delete: if false; // Deletions of entire mosque data is forbidden on clients
+    }
+
+    // 2. Users / Profiles collection
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && (request.auth.uid == userId || isAdminOfMasjid(request.auth.uid, existing().masjidId));
+      allow list: if isVerified() && (
+        resource.data.uid == request.auth.uid || 
+        isAdminOfMasjid(request.auth.uid, resource.data.masjidId)
+      );
+
+      // Create profile: User must write their own profile and cannot elevate role above standard member/guest
+      allow create: if isVerified() && isValidId(userId) && request.auth.uid == userId && isValidUser(incoming()) && incoming().uid == userId &&
+                     incoming().role != 'admin' && incoming().approved == false && masjidExists(incoming().masjidId);
+
+      // Update rules: Owner can edit details, but CANNOT self-escalate roles, approval, or change masjid
+      allow update: if isVerified() && isValidId(userId) && isValidUser(incoming()) && (
+        // Action: Self edit personal information (non-privileged)
+        (request.auth.uid == userId && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'fatherName', 'aadharCard', 'bankName', 'accountNumber', 'ifscCode'])) ||
+        // Action: Admin edits user role/approval
+        (isAdminOfMasjid(request.auth.uid, existing().masjidId) && incoming().uid == existing().uid && incoming().masjidId == existing().masjidId &&
+         incoming().diff(existing()).affectedKeys().hasAny(['role', 'approved']))
+      );
+
+      allow delete: if false; // Accounts are never deleted via Web client SDK
+    }
+
+    // 3. Donations collection
+    match /donations/{donationId} {
+      allow get: if isVerified() && isValidId(donationId) && (isAdminOfMasjid(request.auth.uid, existing().masjidId) || isMemberOfMasjid(request.auth.uid, existing().masjidId));
+      allow list: if isVerified() && (isAdminOfMasjid(request.auth.uid, resource.data.masjidId) || isMemberOfMasjid(request.auth.uid, resource.data.masjidId));
+
+      allow create: if isVerified() && isValidId(donationId) && isValidDonation(incoming()) && incoming().id == donationId &&
+                     masjidExists(incoming().masjidId);
+
+      allow update, delete: if false; // Donations are immutable ledger logs!
+    }
+
+    // 4. Madad Requests (Financial assistance)
+    match /madadRequests/{requestId} {
+      // Sensitive data - reads are ONLY exposed to the verified masjid administrators
+      allow get: if isVerified() && isValidId(requestId) && isAdminOfMasjid(request.auth.uid, existing().masjidId);
+      allow list: if isVerified() && isAdminOfMasjid(request.auth.uid, resource.data.masjidId);
+
+      // Any verified user can submit a welfare aid request to their masjid
+      allow create: if isVerified() && isValidId(requestId) && isValidMadadRequest(incoming()) && incoming().id == requestId &&
+                     incoming().status == 'pending' && incoming().returnedAmount == 0 &&
+                     isMemberOfMasjid(request.auth.uid, incoming().masjidId) && masjidExists(incoming().masjidId);
+
+      // Only administrators can update the Status (Accept/Reject) or Return Amount
+      allow update: if isVerified() && isValidId(requestId) && isValidMadadRequest(incoming()) && isAdminOfMasjid(request.auth.uid, existing().masjidId) &&
+                     incoming().id == existing().id && incoming().masjidId == existing().masjidId &&
+                     incoming().diff(existing()).affectedKeys().hasAny(['status', 'returnedAmount']);
+
+      allow delete: if false; // Requests can never be physically deleted by clients
+    }
+
+    // 5. Hadith of the Day
+    match /hadithOfTheDay/{hadithId} {
+      allow get: if true; // Publicly readable
+      allow list: if true; // Publicly listable
+
+      allow create: if isVerified() && isValidId(hadithId) && isValidHadith(incoming()) && incoming().id == hadithId &&
+                     isAdminOfMasjid(request.auth.uid, incoming().masjidId) && masjidExists(incoming().masjidId);
+
+      allow update: if isVerified() && isValidId(hadithId) && isValidHadith(incoming()) && isAdminOfMasjid(request.auth.uid, existing().masjidId) &&
+                     incoming().id == existing().id && incoming().masjidId == existing().masjidId;
+
+      allow delete: if isVerified() && isValidId(hadithId) && isAdminOfMasjid(request.auth.uid, existing().masjidId);
+    }
+
+    // 6. Notifications
+    match /notifications/{notificationId} {
+      allow get: if true; // announcements are publicly readable
+      allow list: if true; // listable
+
+      allow create: if isVerified() && isValidId(notificationId) && isValidNotification(incoming()) && incoming().id == notificationId &&
+                     isAdminOfMasjid(request.auth.uid, incoming().masjidId) && masjidExists(incoming().masjidId);
+
+      allow update: if isVerified() && isValidId(notificationId) && isValidNotification(incoming()) && isAdminOfMasjid(request.auth.uid, existing().masjidId) &&
+                     incoming().id == existing().id && incoming().masjidId == existing().masjidId;
+
+      allow delete: if isVerified() && isValidId(notificationId) && isAdminOfMasjid(request.auth.uid, existing().masjidId);
+    }
+
+    // 7. Live Azan Signals
+    match /liveAzanSignals/{masjidId} {
+      allow get: if isValidId(masjidId);
+      allow list: if isSignedIn();
+
+      allow create: if isVerified() && isValidId(masjidId) && isValidLiveAzan(incoming()) && incoming().id == masjidId &&
+                     isAdminOfMasjid(request.auth.uid, masjidId) && masjidExists(masjidId);
+
+      allow update: if isVerified() && isValidId(masjidId) && isValidLiveAzan(incoming()) && isAdminOfMasjid(request.auth.uid, masjidId) &&
+                     incoming().id == existing().id;
+
+      allow delete: if false; // Never delete signals
+    }
+  }
+}

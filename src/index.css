@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Mukta:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;700&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: #F3F6F3;
+  }
+}
+
+/* Custom class for beautiful Arabic script */
+.font-arabic {
+  font-family: 'Noto Naskh Arabic', 'Amiri', serif;
+}
+
+/* Custom class for Hindi script */
+.font-hindi {
+  font-family: 'Mukta', sans-serif;
+}
+
+/* Glow ring effects for Live Azan and Active prayer times */
+@keyframes ring-glow {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0;
+  }
+}
+
+.animate-ring-glow {
+  animation: ring-glow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Sleek Interface Theme Styles */
+.islamic-pattern {
+  background-image: radial-gradient(#006400 0.5px, transparent 0.5px);
+  background-size: 24px 24px;
+  opacity: 0.05;
+}
+
+.card-shadow {
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+.gradient-green {
+  background: linear-gradient(135deg, #008000 0%, #004d00 100%);
+}
+
+.gold-text {
+  color: #B8860B;
+}
+
+/* Beautiful Islamic background geometric patterns */
+.bg-islamic-pattern {
+  background-color: #004d00;
+  background-image: radial-gradient(#008000 0.5px, transparent 0.5px), radial-gradient(#008000 0.5px, #004d00 0.5px);
+  background-size: 20px 20px;
+  background-position: 0 0, 10px 10px;
+}
+
+/* Customized scrollbar for list containers */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #008000;
+  border-radius: 4px;
+}
+
