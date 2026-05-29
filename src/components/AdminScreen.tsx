@@ -14,6 +14,15 @@ export default function AdminScreen(props: AdminScreenProps) {
   const t = translations[props.currentLanguage];
   const [activeTab, setActiveTab] = useState<'tools' | 'approvals' | 'members' | 'ledger'>('tools');
 
+  // Dynamic user data bindings
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    try {
+      const u = localStorage.getItem('digital_masjid_current_user');
+      return u ? JSON.parse(u) : null;
+    } catch { return null; }
+  });
+  const [currentMasjid, setCurrentMasjid] = useState<any>(null);
+
   // Shared state values
   const [memberCode, setMemberCode] = useState('786110');
   const [hadithText, setHadithText] = useState('Sadaqah (Charity) is a shield against the Hellfire.');
@@ -40,6 +49,13 @@ export default function AdminScreen(props: AdminScreenProps) {
     setMembers(mems);
     setDonations(dons);
     setMadadRequests(mads);
+
+    // Get active masjid info
+    const mList = await MasjidService.getMasjids();
+    const found = mList.find(m => m.id === props.masjidId);
+    if (found) {
+      setCurrentMasjid(found);
+    }
   };
 
   const handleGenerateNewCode = () => {
@@ -107,12 +123,12 @@ export default function AdminScreen(props: AdminScreenProps) {
     <div className="w-full max-w-md mx-auto p-4 pb-20 text-left">
       
       {/* Admin Greeting header */}
-      <div className="flex items-center gap-2 mb-4 bg-gradient-to-br from-emerald-800 to-emerald-950 text-white rounded-3xl p-5 card-shadow relative bg-islamic-pattern">
+      <div className="flex items-center gap-2 mb-4 bg-gradient-to-br from-emerald-800 to-emerald-950 text-white rounded-3xl p-5 card-shadow relative bg-islamic-pattern-dense text-left">
         <ShieldCheck className="w-10 h-10 text-amber-400 shrink-0" />
         <div>
           <h2 className="text-lg font-bold tracking-tight">{t.adminPanelTitle}</h2>
-          <span className="text-[10px] text-emerald-200 block tracking-widest font-mono uppercase">
-            Imam Maulana Zubair • Mubarakpur Masjid Admin
+          <span className="text-[10px] text-emerald-200 block tracking-wider font-mono">
+            {currentUser?.name || "Imam Maulana Zubair Ahmad"} • {currentMasjid?.name || "Masjid Noor Al-Islam"} Admin
           </span>
         </div>
       </div>
@@ -149,6 +165,23 @@ export default function AdminScreen(props: AdminScreenProps) {
       {/* 1. ADMINISTRATIVE TOOLS (Codes + Hadith + Announcements) */}
       {activeTab === 'tools' && (
         <div className="flex flex-col gap-5">
+          {/* Imam App Help & Assistance Ticket Desk */}
+          <div className="bg-[#FFFDF6] rounded-3xl border-2 border-amber-250 p-5 shadow-sm text-left">
+            <h3 className="text-xs font-black text-amber-900 uppercase tracking-widest flex items-center gap-1.5 border-b border-amber-200/50 pb-2 mb-3">
+              <ShieldAlert className="w-4 h-4 text-amber-600" />
+              <span>🚨 REPORT APP ISSUE / शिकायत दर्ज करें</span>
+            </h3>
+            <p className="text-xs text-slate-700 font-semibold leading-relaxed mb-4">
+              इमाम साहब, अगर ऐप्लिकेशन इस्तेमाल करने में कोई भी दिक्कत (Problem/Error) आ रही है, तो कृपया नीचे दिए बटन पर क्लिक कर डेवलपर (Azmatullah) को <strong>स्क्रीनशॉट के साथ (with screenshot)</strong> ईमेल भेजें:
+            </p>
+            <a
+              id="btn-imam-support-email"
+              href={`mailto:azmatullahmd113@gmail.com?subject=Digital%20Masjid%20App%20Issue%20-%20Imam%20Sahab&body=Assalamu%20Alaikum%20Brother%20Azmatullah,%250D%250A%250D%250AI%2520am%2520the%2520Imam%2520of%2520${encodeURIComponent(currentMasjid?.name || 'Local')}%2520Masjid,%2520${encodeURIComponent(currentMasjid?.city || 'Selected%2520Location')}.%2520I%2520am%2520facing%2520the%2520following%2520issue%2520with%2520the%252520application:%250D%250A%250D%250A[DESCRIBE%2520YOUR%2520ISSUE%2520HERE]%250D%250A%250D%250APlease%2520find%2520attached%2520the%2520screenshot.`}
+              className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 font-black py-3 rounded-2xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm"
+            >
+              ✉️ ईमेल भेजें (azmatullahmd113@gmail.com)
+            </a>
+          </div>
           {/* Code creation card */}
           <div className="bg-white rounded-3xl border border-gray-100 card-shadow p-5">
             <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-400 mb-3 flex items-center gap-1.5 border-b border-gray-100 pb-2">

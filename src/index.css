@@ -73,3 +73,8 @@
   border-radius: 4px;
 }
 
+/* Smooth motion for Qibla direction compass dial */
+#qibla-compass-dial-container .qibla-inner-dial {
+  transition: transform 0.6s ease-out !important;
+}
+

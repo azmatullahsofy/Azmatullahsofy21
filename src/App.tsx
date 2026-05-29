@@ -22,7 +22,7 @@ import {
   Globe
 } from 'lucide-react';
 
-import { Language, UserProfile, NotificationMsg, Hadith, NamazTimetable } from './types';
+import { Language, UserProfile, NotificationMsg, Hadith, NamazTimetable, Masjid } from './types';
 import { translations } from './translations';
 import { defaultHadiths, defaultNamazTimetable } from './defaultData';
 import { MasjidService } from './services/MasjidService';
@@ -33,14 +33,19 @@ import LoginScreen from './components/LoginScreen';
 import TimetableScreen from './components/TimetableScreen';
 import DuaScreen from './components/DuaScreen';
 import NamazGuideScreen from './components/NamazGuideScreen';
+import QiblaCompass from './components/QiblaCompass';
 import DonateScreen from './components/DonateScreen';
 import MadadScreen from './components/MadadScreen';
 import AdminScreen from './components/AdminScreen';
+import MyProfileScreen from './components/MyProfileScreen';
 
 export default function App() {
   // Locale Languages
   const [lang, setLang] = useState<Language>('hi'); // Default to Hindi to match localized community priorities
   const t = translations[lang];
+
+  // My Profile state
+  const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
 
   // Sessions and logins
   const [user, setUser] = useState<UserProfile | null>(() => {
@@ -60,6 +65,13 @@ export default function App() {
   const [notificationsList, setNotificationsList] = useState<NotificationMsg[]>([]);
   const [timetable, setTimetable] = useState<NamazTimetable>(defaultNamazTimetable);
 
+  // Masjid Database States & Geolocation SUGGESTIONS
+  const [allMasjids, setAllMasjids] = useState<Masjid[]>([]);
+  const [selectedMasjid, setSelectedMasjid] = useState<Masjid | null>(null);
+  const [geoSuggestion, setGeoSuggestion] = useState<{ masjid: Masjid; distance: number } | null>(null);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [imamContact, setImamContact] = useState<UserProfile | null>(null);
+
   // Live Azan Stream state
   const [isLiveAzanActive, setIsLiveAzanActive] = useState(false);
   const [isListeningLiveStream, setIsListeningLiveStream] = useState(false);
@@ -73,21 +85,253 @@ export default function App() {
   const micStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  // Load static data
+  // Load All Masjids list on mount
   useEffect(() => {
-    loadMasjidFeed();
+    const fetchMasjids = async () => {
+      const list = await MasjidService.getMasjids();
+      setAllMasjids(list);
+    };
+    fetchMasjids();
+  }, []);
+
+  // Initialize selectedMasjid state dynamically based on user session or localStorage
+  useEffect(() => {
+    const initMasjid = async () => {
+      const list = await MasjidService.getMasjids();
+      
+      const savedId = localStorage.getItem('digital_masjid_selected_masjid_id');
+      
+      // 1. If user has a registered mosque
+      if (user && user.masjidId) {
+        const found = list.find(m => m.id === user.masjidId);
+        if (found) {
+          setSelectedMasjid(found);
+          return;
+        }
+      }
+      
+      // 2. If guest has manually chosen or selected a mosque
+      if (savedId) {
+        const found = list.find(m => m.id === savedId);
+        if (found) {
+          setSelectedMasjid(found);
+          return;
+        }
+      }
+
+      // 3. Fallback default
+      const defaultM = list.find(m => m.id === 'm1') || list[0];
+      setSelectedMasjid(defaultM);
+    };
+    initMasjid();
+  }, [user]);
+
+  // Request/Toggle Geolocation Match
+  const requestDeviceLocation = () => {
+    if (!navigator.geolocation) {
+      console.warn("Geolocation not supported by this browser");
+      return;
+    }
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        const result = await MasjidService.getNearestMasjid(latitude, longitude);
+        if (result) {
+          setGeoSuggestion(result);
+        }
+        setIsLocating(false);
+      },
+      (err) => {
+        console.warn("Geolocation fetch error or denied", err);
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // Perform geolocation auto-lookups on first load if they haven't explicitly set a masjid in their guest browser
+  useEffect(() => {
+    const savedId = localStorage.getItem('digital_masjid_selected_masjid_id');
+    const hasActiveProfile = user && user.masjidId;
     
-    // Play sound simulation files safely
+    if (!savedId && !hasActiveProfile) {
+      requestDeviceLocation();
+    }
+  }, [user]);
+
+  // Handle explicit selection of mosque which sets it in local state and persists as default
+  const handleSelectMasjid = (masjidId: string) => {
+    const found = allMasjids.find(m => m.id === masjidId);
+    if (found) {
+      setSelectedMasjid(found);
+      localStorage.setItem('digital_masjid_selected_masjid_id', masjidId);
+    }
+  };
+
+  // --- REAL-TIME OFFLINE PWA NAMAZ TIME CHIME & ALERT REMINDER ---
+  const [activeToastAlert, setActiveToastAlert] = useState<{ prayer: string; time: string } | null>(null);
+
+  useEffect(() => {
+    if (!timetable) return;
+
+    // Fast robust helper to parse AM/PM strings like "04:15 AM" or 24H strings
+    const parseTimeTo24H = (timeStr: string) => {
+      if (!timeStr) return null;
+      try {
+        const clean = timeStr.trim().toUpperCase();
+        const parts = clean.split(/\s+/);
+        const timePart = parts[0];
+        const ampm = parts[1];
+        if (!timePart) return null;
+        
+        const subParts = timePart.split(':');
+        let h = parseInt(subParts[0], 10);
+        const m = parseInt(subParts[1], 10);
+        if (isNaN(h) || isNaN(m)) return null;
+
+        if (ampm === 'PM' && h !== 12) {
+          h += 12;
+        } else if (ampm === 'AM' && h === 12) {
+          h = 0;
+        }
+        return { hour: h, minute: m };
+      } catch (err) {
+        return null;
+      }
+    };
+
+    // Offline arpeggio audio chime synthesis (no bandwidth, 100% offline compliant)
+    const playAdhanAlertChime = () => {
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const playTone = (freq: number, delayNormalized: number, duration: number) => {
+          const osc = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+          
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delayNormalized);
+          
+          gainNode.gain.setValueAtTime(0, audioCtx.currentTime + delayNormalized);
+          gainNode.gain.linearRampToValueAtTime(0.20, audioCtx.currentTime + delayNormalized + 0.05);
+          gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + delayNormalized + duration);
+          
+          osc.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+          
+          osc.start(audioCtx.currentTime + delayNormalized);
+          osc.stop(audioCtx.currentTime + delayNormalized + duration);
+        };
+
+        // Harmonious arpeggio chime representing holy alert
+        playTone(523.25, 0, 0.4);       // C5
+        playTone(659.25, 0.15, 0.4);    // E5
+        playTone(783.99, 0.3, 0.4);     // G5
+        playTone(1046.50, 0.45, 0.85);  // C6
+      } catch (err) {
+        console.warn("Speech/Audio context failed to synthesize Waqt sound", err);
+      }
+    };
+
+    const performScheduleScan = () => {
+      const isGlobalOn = localStorage.getItem('digital_masjid_alerts_global') === 'true';
+      if (!isGlobalOn) return;
+
+      const rightNow = new Date();
+      const currentH = rightNow.getHours();
+      const currentM = rightNow.getMinutes();
+      const todayKeyLabel = rightNow.toISOString().split('T')[0]; // "YYYY-MM-DD"
+
+      const targetList = [
+        { key: 'fajr', name: 'Fajr / फ़ज्र' },
+        { key: 'sunrise', name: 'Sunrise / सूर्योदय' },
+        { key: 'dhuhr', name: 'Dhuhr / ज़ुहर' },
+        { key: 'asr', name: 'Asr / असर' },
+        { key: 'maghrib', name: 'Maghrib / मगरिब' },
+        { key: 'isha', name: 'Isha / ईशा' },
+        { key: 'sehriEnd', name: 'Sehri Ends' },
+        { key: 'iftarStart', name: 'Iftar Starts' }
+      ];
+
+      targetList.forEach(item => {
+        const isThisAlertEnabled = localStorage.getItem(`digital_masjid_alert_enabled_${item.key}`) !== 'false';
+        if (!isThisAlertEnabled) return;
+
+        const timeString = timetable[item.key as keyof NamazTimetable];
+        if (!timeString || typeof timeString !== 'string') return;
+
+        const parsedTime = parseTimeTo24H(timeString);
+        if (!parsedTime) return;
+
+        if (parsedTime.hour === currentH && parsedTime.minute === currentM) {
+          const alertFiredFlag = `digital_masjid_alert_fired_${item.key}_${todayKeyLabel}`;
+          if (localStorage.getItem(alertFiredFlag) !== 'true') {
+            // Commit immediately to prevent parallel check loops from duplicate-triggering
+            localStorage.setItem(alertFiredFlag, 'true');
+
+            // Play synthesized pleasant chime speaker
+            playAdhanAlertChime();
+
+            // Populate active visually floating UI top toast banner (animated with absolute high polish)
+            setActiveToastAlert({
+              prayer: item.name,
+              time: timeString
+            });
+
+            // Native browser system notification trigger
+            if ('Notification' in window && Notification.permission === 'granted') {
+              try {
+                new Notification(`🕌 Namaz Waqt: ${item.name}!`, {
+                  body: `Bismillah! Waqt has started (${timeString}) in your location. Time to perform your holy prayer.`,
+                  icon: '/favicon.ico',
+                  tag: `mosque-alarm-${item.key}`
+                });
+              } catch (ex) {
+                console.warn("Iframe system notification blocked by sandoboxing constraints", ex);
+              }
+            }
+          }
+        }
+      });
+    };
+
+    // Execute scan immediately and then check every 5 seconds to match minute borders perfectly
+    performScheduleScan();
+    const intervalHandle = setInterval(performScheduleScan, 5000);
+
+    return () => clearInterval(intervalHandle);
+  }, [timetable]);
+
+  // Audio simulation set-up
+  useEffect(() => {
     azanAudioRef.current = new Audio("https://cdn.pixabay.com/download/audio/2022/10/31/audio_10e05e55be.mp3?filename=azan-madina-60866.mp3");
     azanAudioRef.current.loop = true;
 
-    // Listen to live Azan status in real time
+    return () => {
+      if (azanAudioRef.current) {
+        azanAudioRef.current.pause();
+      }
+      stopMicrophoneStream();
+    };
+  }, []);
+
+  // Sync feed loading and real-time live Azan listener whenever selectedMasjid coordinates/ID changes
+  useEffect(() => {
+    if (!selectedMasjid) return;
+
+    loadMasjidFeed(selectedMasjid.id, selectedMasjid.city);
+
+    const fetchImamAndVerify = async () => {
+      const imam = await MasjidService.getImamOfMasjid(selectedMasjid.id);
+      setImamContact(imam);
+    };
+    fetchImamAndVerify();
+
     let unsubscribe: any = null;
     const connectAzanSignal = async () => {
-      unsubscribe = await MasjidService.registerLiveAzanListener("m1", (isLive) => {
+      unsubscribe = await MasjidService.registerLiveAzanListener(selectedMasjid.id, (isLive) => {
         setIsLiveAzanActive(isLive);
         if (!isLive) {
-          // Force stop player if live status finishes
           setIsListeningLiveStream(false);
           if (azanAudioRef.current) {
             azanAudioRef.current.pause();
@@ -100,21 +344,17 @@ export default function App() {
 
     return () => {
       if (unsubscribe) unsubscribe();
-      if (azanAudioRef.current) {
-        azanAudioRef.current.pause();
-      }
-      stopMicrophoneStream();
     };
-  }, []);
+  }, [selectedMasjid]);
 
-  const loadMasjidFeed = async () => {
-    const dailyHadith = await MasjidService.getHadithOfTheDay("m1");
+  const loadMasjidFeed = async (masjidId: string, city: string) => {
+    const dailyHadith = await MasjidService.getHadithOfTheDay(masjidId);
     setActiveHadith(dailyHadith);
 
-    const alerts = await MasjidService.getNotifications("m1");
+    const alerts = await MasjidService.getNotifications(masjidId);
     setNotificationsList(alerts);
 
-    const sheet = await MasjidService.fetchTimetableByCity("Mubarakpur");
+    const sheet = await MasjidService.fetchTimetableByCity(city);
     setTimetable(sheet);
   };
 
@@ -146,6 +386,7 @@ export default function App() {
     setUser(null);
     setIsGuest(false);
     setSelectedRoleForLogin(null);
+    setIsProfileOpen(false);
     setCurrentTab('home');
     localStorage.removeItem('digital_masjid_current_user');
     localStorage.removeItem('digital_masjid_is_guest');
@@ -239,6 +480,42 @@ export default function App() {
 
   return (
     <div className="w-full max-w-md mx-auto min-h-screen bg-[#F3F6F3] flex flex-col justify-between relative shadow-2xl border-x border-slate-200">
+      {/* Floating Animated Namaz Alarm Alert Toast Banner */}
+      <AnimatePresence>
+        {activeToastAlert && (
+          <motion.div
+            initial={{ opacity: 0, y: -80, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -40, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className="fixed top-4 left-4 right-4 z-[9999] max-w-md mx-auto bg-emerald-900 border border-emerald-500/30 text-white rounded-3xl shadow-2xl p-4 flex gap-3 items-start backdrop-blur"
+          >
+            <div className="bg-emerald-800 text-amber-300 p-2.5 rounded-2xl animate-bounce shrink-0 shadow-inner">
+              <BellRing className="w-5 h-5 animate-pulse" />
+            </div>
+            <div className="flex-1 text-left min-w-0">
+              <h5 className="text-[10px] font-extrabold tracking-widest text-amber-400 font-mono uppercase">
+                🕌 AZAN REMINDER (नमाज़ पुकार)
+              </h5>
+              <h4 className="text-[14px] font-black leading-tight text-white mt-0.5">
+                {activeToastAlert.prayer} Waqt Started!
+              </h4>
+              <p className="text-[11px] text-emerald-250/90 leading-normal mt-1">
+                Bismillah! Offering prayer on its early Waqt is highly recommended. Time: <strong className="text-white font-black font-mono bg-emerald-950/40 px-1.5 py-0.5 rounded text-[10px]">{activeToastAlert.time}</strong>.
+              </p>
+            </div>
+            <button
+              id="btn-close-toast-alert"
+              onClick={() => setActiveToastAlert(null)}
+              className="text-emerald-300 hover:text-white font-extrabold text-xs bg-emerald-950/40 p-1.5 rounded-full transition-colors shrink-0"
+              title="Close Alarm"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="absolute inset-0 islamic-pattern pointer-events-none z-0"></div>
       
       {/* 1. UPPER HEADER DESK */}
@@ -250,11 +527,11 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-sm font-black font-sans tracking-wide">
-                {user ? "Masjid Noor" : "Digital Masjid"}
+                {selectedMasjid ? selectedMasjid.name : "Digital Masjid"}
               </h1>
               <div className="flex items-center gap-1 text-[9px] text-emerald-300 font-bold font-mono">
                 <MapPin className="w-3 h-3" />
-                <span>MUBARAKPUR • M_786</span>
+                <span>{(selectedMasjid?.city || "").toUpperCase()} • {selectedMasjid?.code || "786110"}</span>
               </div>
             </div>
           </div>
@@ -276,6 +553,18 @@ export default function App() {
               </select>
             </div>
 
+            {/* My Profile trigger */}
+            {user && (
+              <button
+                id="btn-header-profile"
+                onClick={() => setIsProfileOpen(true)}
+                className="p-2 rounded-xl bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-200 border border-emerald-500/15 transition-all text-xs flex items-center justify-center gap-1 font-bold"
+                title="My Profile"
+              >
+                <User className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Logout trigger */}
             {(user || isGuest) && (
               <button
@@ -293,10 +582,17 @@ export default function App() {
         {/* User context banner */}
         {user && (
           <div className="mt-3.5 pt-2.5 border-t border-white/10 flex justify-between items-center text-[10px]">
-            <div className="flex items-center gap-1.5">
+            <button
+              id="btn-header-context-profile"
+              onClick={() => setIsProfileOpen(true)}
+              className="flex items-center gap-1.5 focus:outline-none hover:opacity-80 transition-opacity bg-transparent border-none p-0 cursor-pointer text-left"
+            >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span className="text-slate-300">Logged as: <strong className="text-white">{user.name}</strong></span>
-            </div>
+              <span className="text-slate-300">
+                Logged as: <strong className="text-white hover:underline">{user.name}</strong> 
+                <span className="text-amber-300 ml-1 font-extrabold font-mono text-[9px]">(EDIT ✎)</span>
+              </span>
+            </button>
             <span className="text-amber-400 tracking-wider font-extrabold uppercase bg-white/5 py-0.5 px-2.5 rounded-lg font-mono">
               ★ {user.role === 'admin' ? 'Imam / Admin' : 'Village Member'}
             </span>
@@ -358,8 +654,17 @@ export default function App() {
       {/* 3. CORE VIEWS DISPATCHER CONTENT */}
       <main className="flex-1 bg-transparent min-h-[75vh] z-10 relative">
         
-        {/* LOGIN GATE CHOOSE SCREEN */}
-        {!user && !isGuest ? (
+        {user && isProfileOpen ? (
+          <MyProfileScreen
+            currentLanguage={lang}
+            user={user}
+            onClose={() => setIsProfileOpen(false)}
+            onProfileUpdated={(updatedUser) => {
+              setUser(updatedUser);
+              localStorage.setItem('digital_masjid_current_user', JSON.stringify(updatedUser));
+            }}
+          />
+        ) : !user && !isGuest ? (
           selectedRoleForLogin ? (
             <LoginScreen
               currentLanguage={lang}
@@ -373,6 +678,12 @@ export default function App() {
               setLanguage={setLang}
               onSelectRole={(role) => setSelectedRoleForLogin(role)}
               onContinueAsGuest={handleContinueAsGuest}
+              masjids={allMasjids}
+              selectedMasjid={selectedMasjid}
+              geoSuggestion={geoSuggestion}
+              isLocating={isLocating}
+              onRequestLocation={requestDeviceLocation}
+              onSelectMasjid={handleSelectMasjid}
             />
           )
         ) : (
@@ -388,15 +699,63 @@ export default function App() {
                   <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-800 flex items-center justify-center shadow-inner">
                     <Clock className="w-5 h-5 text-emerald-700" />
                   </div>
-                  <div>
+                  <div className="text-left font-sans">
                     <span className="text-[10px] text-emerald-600 font-bold font-mono tracking-wider uppercase block">
                       {t.nextNamaz} (अगली नमाज़)
                     </span>
                     <h3 className="text-base font-extrabold text-slate-800">
-                      Zohrawaqt - 12:15 PM - In Mubarakpur
+                      Zohrawaqt - 12:15 PM {selectedMasjid?.city ? `- In ${selectedMasjid.city}` : ""}
                     </h3>
                   </div>
                 </div>
+
+                {/* Mutawalli Support helpline - Contact Imam Sahab */}
+                {user?.role === 'member' && (
+                  <div className="bg-amber-50/50 border border-amber-200/50 rounded-3xl p-5 text-left">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="p-1 rounded-lg bg-amber-100 text-amber-850">
+                        <User className="w-4 h-4" />
+                      </span>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-amber-900 font-mono">
+                        इमाम साहब से राब्ता (Imam Sahab Contact Helpdesk)
+                      </h4>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-normal mb-3 font-medium">
+                      मुतवल्ली साहब, इस ऐप्लिकेशन के बारे में कोई भी दिक्कत (App support / help) या काम के लिए सीधे इमाम साहब से राब्ता (Contact) करें:
+                    </p>
+                    
+                    <div className="bg-white border rounded-2xl p-3.5 mb-3 flex items-center justify-between">
+                      <div className="text-left font-sans">
+                        <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider">Your Mosque's Imam</span>
+                        <span className="text-sm font-black text-slate-900 block mt-0.5">
+                          Maulana {imamContact?.name || "Zubair Ahmad"}
+                        </span>
+                        <a href={`tel:${imamContact?.phone || "9876543210"}`} className="text-xs font-semibold text-emerald-800 font-mono block mt-1 hover:underline">
+                          📞 {imamContact?.phone || "+91 98765 43210"}
+                        </a>
+                      </div>
+                      <span className="text-[8px] font-extrabold bg-emerald-800 text-amber-350 p-1 px-2.5 rounded-lg font-mono uppercase shrink-0">
+                        Verified Imam
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <a
+                        href={`tel:${imamContact?.phone || "9876543210"}`}
+                        className="py-2 px-3 rounded-xl border border-emerald-800 bg-emerald-800 hover:bg-emerald-950 text-white text-xs font-bold text-center flex items-center justify-center gap-1 shadow-sm transition-colors"
+                      >
+                        <span>📞 Call Imam</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${(imamContact?.phone || "9876543210").replace(/\s+/g, '')}?text=Assalamu%20Alaikum%20Imam%20Sahab,%20mujhe%20Digital%20Masjid%20application%20ke%20silsile%20me%20kuch%2520rabta%2520karna%2520tha.`}
+                        className="py-2 px-3 rounded-xl border border-emerald-100 bg-white hover:bg-slate-50 text-slate-950 text-xs font-bold text-center flex items-center justify-center gap-1 shadow-sm transition-colors"
+                        referrerPolicy="no-referrer"
+                      >
+                        <span>💬 WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+                )}
 
                 {/* 2. Urgent Live Announcement push template list */}
                 <div className="bg-white rounded-3xl card-shadow border border-gray-100 p-5">
@@ -533,11 +892,20 @@ export default function App() {
 
             {/* TAB 2: DAILY AZAN ALARM & TIMETABLES */}
             {currentTab === 'azan' && (
-              <div className="flex flex-col gap-4 pb-20">
+              <div className="flex flex-col gap-1 pb-20">
                 <TimetableScreen 
                   currentLanguage={lang} 
-                  masjidCity="Mubarakpur" 
+                  masjidCity={selectedMasjid?.city || ""} 
                 />
+                
+                {/* INTERACTIVE QIBLA COMPASS DISPLAY */}
+                <div className="w-full max-w-md mx-auto px-4 mb-4">
+                  <QiblaCompass 
+                    currentLanguage={lang}
+                    selectedMasjid={selectedMasjid}
+                  />
+                </div>
+
                 <DuaScreen currentLanguage={lang} />
                 <NamazGuideScreen currentLanguage={lang} />
               </div>
@@ -548,7 +916,7 @@ export default function App() {
               <div className="pb-20">
                 <DonateScreen 
                   currentLanguage={lang} 
-                  masjidId="m1" 
+                  masjidId={selectedMasjid?.id || "m1"} 
                   donorNameInitial={user?.name || ''} 
                 />
               </div>
@@ -575,7 +943,7 @@ export default function App() {
                 ) : (
                   <MadadScreen 
                     currentLanguage={lang} 
-                    masjidId="m1" 
+                    masjidId={selectedMasjid?.id || "m1"} 
                     memberProfile={user} 
                   />
                 )}
@@ -588,8 +956,8 @@ export default function App() {
                 {user?.role === 'admin' ? (
                   <AdminScreen 
                     currentLanguage={lang} 
-                    masjidId="m1" 
-                    onPostNotificationCallback={loadMasjidFeed} 
+                    masjidId={selectedMasjid?.id || "m1"} 
+                    onPostNotificationCallback={() => selectedMasjid && loadMasjidFeed(selectedMasjid.id, selectedMasjid.city)} 
                   />
                 ) : (
                   <div className="p-8 text-center bg-white rounded-3xl border border-slate-100 shadow-md max-w-sm mx-auto my-12">

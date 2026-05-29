@@ -79,7 +79,39 @@ const initialMasjids: Masjid[] = [
     city: "Mubarakpur",
     code: "786110",
     address: "Bazar Mohalla, Village Mubarakpur",
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    latitude: 26.0913,
+    longitude: 83.2917
+  },
+  {
+    id: "m2",
+    name: "Markazi Shahi Masjid",
+    city: "Lucknow",
+    code: "123456",
+    address: "Husainabad, Lucknow, Uttar Pradesh",
+    createdAt: new Date().toISOString(),
+    latitude: 26.8467,
+    longitude: 80.9462
+  },
+  {
+    id: "m3",
+    name: "Delhi Shahi Jama Masjid",
+    city: "Delhi",
+    code: "110006",
+    address: "Chandni Chowk, Old Delhi",
+    createdAt: new Date().toISOString(),
+    latitude: 28.6507,
+    longitude: 77.2334
+  },
+  {
+    id: "m4",
+    name: "Taj-ul-Masajid",
+    city: "Bhopal",
+    code: "462001",
+    address: "Bhopal, Madhya Pradesh",
+    createdAt: new Date().toISOString(),
+    latitude: 23.2599,
+    longitude: 77.4126
   }
 ];
 
@@ -90,7 +122,9 @@ const initialUsers: UserProfile[] = [
     role: "admin",
     masjidId: "m1",
     approved: true,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    username: "imam",
+    phone: "9876543210"
   },
   {
     uid: "member1",
@@ -103,7 +137,8 @@ const initialUsers: UserProfile[] = [
     role: "member",
     masjidId: "m1",
     approved: true,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    phone: "9988776655"
   }
 ];
 
@@ -205,7 +240,13 @@ const initialNotifications: NotificationMsg[] = [
 
 // Seed localStorage if not present
 function initializeLocalReplica() {
-  if (!localStorage.getItem(LOCAL_STORAGE_KEYS.MASJIDS)) {
+  const existingMasjids = localStorage.getItem(LOCAL_STORAGE_KEYS.MASJIDS);
+  let parsedMasjids: Masjid[] = [];
+  try {
+    parsedMasjids = existingMasjids ? JSON.parse(existingMasjids) : [];
+  } catch (e) {}
+
+  if (!existingMasjids || parsedMasjids.length < 3 || !parsedMasjids.some(m => m.latitude !== undefined)) {
     localStorage.setItem(LOCAL_STORAGE_KEYS.MASJIDS, JSON.stringify(initialMasjids));
   }
   if (!localStorage.getItem(LOCAL_STORAGE_KEYS.USERS)) {
@@ -252,6 +293,39 @@ export class MasjidService {
       }
     }
     return getLocal<Masjid>(LOCAL_STORAGE_KEYS.MASJIDS);
+  }
+
+  // Haversine distance calculator in kilometers
+  static getDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371; // Radius of the earth in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in km
+  }
+
+  static async getNearestMasjid(lat: number, lng: number): Promise<{ masjid: Masjid; distance: number } | null> {
+    const masjids = await this.getMasjids();
+    if (masjids.length === 0) return null;
+    
+    let nearest: Masjid | null = null;
+    let minDistance = Infinity;
+    
+    for (const m of masjids) {
+      if (m.latitude !== undefined && m.longitude !== undefined) {
+        const d = this.getDistance(lat, lng, m.latitude, m.longitude);
+        if (d < minDistance) {
+          minDistance = d;
+          nearest = m;
+        }
+      }
+    }
+    if (!nearest) return null;
+    return { masjid: nearest, distance: minDistance };
   }
 
   static async getMasjidByCode(code: string): Promise<Masjid | null> {
@@ -304,7 +378,83 @@ export class MasjidService {
     return currentLocal.find(u => u.uid === uid) || null;
   }
 
-  static async joinMasjidWithCode(code: string, memberDetails: { uid: string, name: string, fatherName: string, aadharCard: string, bankName: string, accountNumber: string, ifscCode: string }): Promise<UserProfile | null> {
+  static async updateUserProfile(uid: string, profileDetails: Partial<UserProfile>): Promise<UserProfile | null> {
+    const profile = await this.getUserProfile(uid);
+    if (!profile) return null;
+
+    const updatedProfile: UserProfile = {
+      ...profile,
+      ...profileDetails,
+    };
+
+    if (isFirebaseAvailable) {
+      try {
+        await updateDoc(doc(db, 'users', uid), profileDetails);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+      }
+    }
+
+    const currentLocal = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
+    const updated = currentLocal.filter(u => u.uid !== uid);
+    updated.push(updatedProfile);
+    setLocal(LOCAL_STORAGE_KEYS.USERS, updated);
+    return updatedProfile;
+  }
+
+  static async getMutawalliByPhone(phone: string): Promise<UserProfile | null> {
+    const cleanPhone = phone.trim().replace(/\s+/g, '');
+    if (isFirebaseAvailable) {
+      try {
+        const q = query(collection(db, 'users'), where('phone', '==', cleanPhone));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          return { uid: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as UserProfile;
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'users');
+      }
+    }
+    const currentLocal = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
+    return currentLocal.find(u => u.phone?.trim().replace(/\s+/g, '') === cleanPhone) || null;
+  }
+
+  static async getImamByUsername(username: string): Promise<UserProfile | null> {
+    const cleanUser = username.trim().toLowerCase();
+    if (isFirebaseAvailable) {
+      try {
+        const q = query(collection(db, 'users'), where('username', '==', cleanUser));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docData = querySnapshot.docs[0].data();
+          return { uid: querySnapshot.docs[0].id, ...docData } as UserProfile;
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'users');
+      }
+    }
+    const currentLocal = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
+    return currentLocal.find(u => u.username?.toLowerCase() === cleanUser) || null;
+  }
+
+  static async getImamOfMasjid(masjidId: string): Promise<UserProfile | null> {
+    if (isFirebaseAvailable) {
+      try {
+        const q = query(collection(db, 'users'), where('masjidId', '==', masjidId), where('role', '==', 'admin'));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          const docData = querySnapshot.docs[0].data();
+          return { uid: querySnapshot.docs[0].id, ...docData } as UserProfile;
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.LIST, 'users');
+      }
+    }
+    const list = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
+    return list.find(u => u.masjidId === masjidId && u.role === 'admin') || null;
+  }
+
+  static async joinMasjidWithCode(code: string, memberDetails: { uid: string, name: string, fatherName: string, aadharCard: string, bankName: string, accountNumber: string, ifscCode: string, phone: string }): Promise<UserProfile | null> {
     const masjid = await this.getMasjidByCode(code);
     if (!masjid) return null;
 
@@ -319,7 +469,8 @@ export class MasjidService {
       role: 'member',
       masjidId: masjid.id,
       approved: true, // Auto approve in local sandbox to provide beautiful immediate experience
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      phone: memberDetails.phone
     };
 
     if (isFirebaseAvailable) {
@@ -332,6 +483,33 @@ export class MasjidService {
 
     const currentLocal = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
     const updated = currentLocal.filter(u => u.uid !== memberDetails.uid);
+    updated.push(newProfile);
+    setLocal(LOCAL_STORAGE_KEYS.USERS, updated);
+    return newProfile;
+  }
+
+  static async createImamProfile(details: { uid: string, name: string, username: string, phone: string, masjidId: string }): Promise<UserProfile> {
+    const newProfile: UserProfile = {
+      uid: details.uid,
+      name: details.name,
+      role: 'admin',
+      masjidId: details.masjidId,
+      approved: true,
+      createdAt: new Date().toISOString(),
+      username: details.username,
+      phone: details.phone
+    };
+
+    if (isFirebaseAvailable) {
+      try {
+        await setDoc(doc(db, 'users', details.uid), newProfile);
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, `users/${details.uid}`);
+      }
+    }
+
+    const currentLocal = getLocal<UserProfile>(LOCAL_STORAGE_KEYS.USERS);
+    const updated = currentLocal.filter(u => u.uid !== details.uid);
     updated.push(newProfile);
     setLocal(LOCAL_STORAGE_KEYS.USERS, updated);
     return newProfile;

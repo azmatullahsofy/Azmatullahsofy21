@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HelpCircle, FileText, Landmark, RotateCcw, ShieldCheck, Sparkles, AlertCircle, RefreshCcw } from 'lucide-react';
+import { HelpCircle, FileText, Landmark, RotateCcw, ShieldCheck, Sparkles, AlertCircle, RefreshCcw, X } from 'lucide-react';
 import { Language, MadadRequest } from '../types';
 import { translations } from '../translations';
 import { MasjidService } from '../services/MasjidService';
@@ -275,14 +275,30 @@ export default function MadadScreen(props: MadadScreenProps) {
               </div>
             </div>
 
-            <button
-              id="btn-madad-submit"
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full bg-emerald-800 hover:bg-emerald-950 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-colors shadow-md mt-2 tracking-widest uppercase flex items-center justify-center gap-1"
-            >
-              <span>{isSubmitting ? "Submitting Request..." : t.submitMadad}</span>
-            </button>
+            <div className="flex gap-2 mt-2">
+              <button
+                id="btn-madad-clear"
+                type="button"
+                onClick={() => {
+                  setReason('');
+                  setAmountNeeded('');
+                }}
+                className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition-colors flex items-center justify-center gap-1 border border-slate-200"
+                title="Clear inputs"
+              >
+                <X className="w-3.5 h-3.5 text-slate-500 font-bold" />
+                <span>Clear</span>
+              </button>
+
+              <button
+                id="btn-madad-submit"
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 bg-emerald-800 hover:bg-emerald-950 text-white font-extrabold py-3.5 rounded-2xl text-xs transition-colors shadow-md tracking-widest uppercase flex items-center justify-center gap-1"
+              >
+                <span>{isSubmitting ? "Submitting Request..." : t.submitMadad}</span>
+              </button>
+            </div>
           </form>
         </div>
       )}

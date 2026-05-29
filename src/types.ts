@@ -9,6 +9,8 @@ export interface Masjid {
   city: string;
   address: string;
   createdAt: string;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface UserProfile {
@@ -23,6 +25,8 @@ export interface UserProfile {
   masjidId: string;
   approved: boolean;
   createdAt: string;
+  phone?: string;
+  username?: string;
 }
 
 export interface Donation {

@@ -136,7 +136,7 @@ service cloud.firestore {
     // 1. Masjids collection
     match /masjids/{masjidId} {
       allow get: if isValidId(masjidId);
-      allow list: if isSignedIn();
+      allow list: if true;
 
       // Anyone authenticated can create a masjid (registration step)
       allow create: if isVerified() && isValidId(masjidId) && isValidMasjid(incoming()) && incoming().id == masjidId;

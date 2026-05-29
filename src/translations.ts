@@ -99,7 +99,13 @@ export const translations: Record<Language, Record<string, string>> = {
     selectLanguage: "Language / ज़बान",
     masjidDetails: "Masjid Name & Code",
     masjidCity: "City / Village",
-    masjidAddress: "Masjid Neighborhood Location"
+    masjidAddress: "Masjid Neighborhood Location",
+    nearestMasjidSuggested: "Suggested Nearest Masjid based on your GPS",
+    distanceText: "distance: {dist} km",
+    useThisMasjid: "Set as Default & Continue",
+    gpsPermissionRequired: "GPS Permission Needed",
+    searchingLocation: "Detecting closest Mosque...",
+    orSelectManually: "Or select from available list"
   },
   hi: {
     appName: "डिजिटल मस्जिद सिस्टम",
@@ -199,7 +205,13 @@ export const translations: Record<Language, Record<string, string>> = {
     selectLanguage: "भाषा का चयन करें",
     masjidDetails: "मस्जिद का नाम और कोड",
     masjidCity: "शहर / गाँव",
-    masjidAddress: "मस्जिद का पता"
+    masjidAddress: "मस्जिद का पता",
+    nearestMasjidSuggested: "GPS के अनुसार निकटतम मस्जिद का सुझाव",
+    distanceText: "दूरी: {dist} किमी",
+    useThisMasjid: "पहचानें और आगे बढ़ें",
+    gpsPermissionRequired: "GPS अनुमति की आवश्यकता है",
+    searchingLocation: "निकटतम मस्जिद खोजी जा रही है...",
+    orSelectManually: "या उपलब्ध मज्जिदों में से चुनें"
   },
   ur: {
     appName: "ڈیجیٹل مسجد سسٹم",
@@ -299,6 +311,12 @@ export const translations: Record<Language, Record<string, string>> = {
     selectLanguage: "زبان کا انتخاب کریں",
     masjidDetails: "مسجد کا نام اور کوڈ",
     masjidCity: "شہر / گاؤں",
-    masjidAddress: "مسجد کا پتہ"
+    masjidAddress: "مسجد کا پتہ",
+    nearestMasjidSuggested: "جی پی ایس کے مطابق تجویز کردہ قریبی مسجد",
+    distanceText: "فاصلہ: {dist} کلومیٹر",
+    useThisMasjid: "اسے منتخب کریں اور آگے بڑھیں",
+    gpsPermissionRequired: "جی پی ایس اجازت درکار ہے",
+    searchingLocation: "قریبی مسجد کی تلاش جاری ہے...",
+    orSelectManually: "یا دستیاب مساجد کی فہرست سے منتخب کریں"
   }
 };
